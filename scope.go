@@ -1212,7 +1212,7 @@ func (scope *Scope) dropColumn(column string) {
 	scope.Raw(fmt.Sprintf("ALTER TABLE %v DROP COLUMN %v", scope.QuotedTableName(), scope.Quote(column))).Exec()
 }
 
-func (scope *Scope) addIndex(unique bool, indexName string, column ...string) {
+func (scope *Scope) addIndex(indexType, indexName, indexMethod string, column ...string) {
 	if scope.Dialect().HasIndex(scope.TableName(), indexName) {
 		return
 	}
@@ -1222,12 +1222,18 @@ func (scope *Scope) addIndex(unique bool, indexName string, column ...string) {
 		columns = append(columns, scope.quoteIfPossible(name))
 	}
 
-	sqlCreate := "CREATE INDEX"
-	if unique {
-		sqlCreate = "CREATE UNIQUE INDEX"
+	var sqlCreate string
+	switch indexType {
+	case "fulltext": sqlCreate = "CREATE FULLTEXT INDEX"
+	case "unique": sqlCreate = "CREATE UNIQUE INDEX"
+	default: sqlCreate = "CREATE INDEX"
 	}
 
-	scope.Raw(fmt.Sprintf("%s %v ON %v(%v) %v", sqlCreate, indexName, scope.QuotedTableName(), strings.Join(columns, ", "), scope.whereSQL())).Exec()
+	pattern := "%s %v%v ON %v(%v) %v"
+	if indexMethod != "" {
+		pattern = "%s %v USING %v ON %v(%v) %v"
+	}
+	scope.Raw(fmt.Sprintf(pattern, sqlCreate, indexName, indexMethod, scope.QuotedTableName(), strings.Join(columns, ", "), scope.whereSQL())).Exec()
 }
 
 func (scope *Scope) addForeignKey(field string, dest string, onDelete string, onUpdate string) {
@@ -1285,11 +1291,25 @@ func (scope *Scope) autoMigrate() *Scope {
 func (scope *Scope) autoIndex() *Scope {
 	var indexes = map[string][]string{}
 	var uniqueIndexes = map[string][]string{}
+	var fullTextIndexes = map[string][]string{}
+	indexMethod := ""
 
 	for _, field := range scope.GetStructFields() {
 		if name, ok := field.TagSettingsGet("INDEX"); ok {
 			names := strings.Split(name, ",")
 
+			for _, name := range names {
+				if name == "INDEX" || name == "" {
+					name = scope.Dialect().BuildKeyName("idx", scope.TableName(), field.DBName)
+				}
+				name, column := scope.Dialect().NormalizeIndexAndColumn(name, field.DBName)
+				indexes[name] = append(indexes[name], column)
+			}
+		}
+
+		if name, ok := field.TagSettingsGet("HASH_INDEX"); ok {
+			names := strings.Split(name, ",")
+			indexMethod = "HASH"
 			for _, name := range names {
 				if name == "INDEX" || name == "" {
 					name = scope.Dialect().BuildKeyName("idx", scope.TableName(), field.DBName)
@@ -1310,16 +1330,42 @@ func (scope *Scope) autoIndex() *Scope {
 				uniqueIndexes[name] = append(uniqueIndexes[name], column)
 			}
 		}
+
+		if name, ok := field.TagSettingsGet("UNIQUE_HASH_INDEX"); ok {
+			names := strings.Split(name, ",")
+			indexMethod = "HASH"
+			for _, name := range names {
+				if name == "UNIQUE_INDEX" || name == "" {
+					name = scope.Dialect().BuildKeyName("uix", scope.TableName(), field.DBName)
+				}
+				name, column := scope.Dialect().NormalizeIndexAndColumn(name, field.DBName)
+				uniqueIndexes[name] = append(uniqueIndexes[name], column)
+			}
+		}
+
+		if name, ok := field.TagSettingsGet("FULLTEXT"); ok {
+			names := strings.Split(name, ",")
+			for _, name := range names {
+				name, column := scope.Dialect().NormalizeIndexAndColumn(name, field.DBName)
+				fullTextIndexes[name] = append(fullTextIndexes[name], column)
+			}
+		}
 	}
 
 	for name, columns := range indexes {
-		if db := scope.NewDB().Table(scope.TableName()).Model(scope.Value).AddIndex(name, columns...); db.Error != nil {
+		if db := scope.NewDB().Table(scope.TableName()).Model(scope.Value).AddIndex(name, indexMethod, columns...); db.Error != nil {
 			scope.db.AddError(db.Error)
 		}
 	}
 
 	for name, columns := range uniqueIndexes {
-		if db := scope.NewDB().Table(scope.TableName()).Model(scope.Value).AddUniqueIndex(name, columns...); db.Error != nil {
+		if db := scope.NewDB().Table(scope.TableName()).Model(scope.Value).AddUniqueIndex(name, indexMethod, columns...); db.Error != nil {
+			scope.db.AddError(db.Error)
+		}
+	}
+
+	for name, columns := range fullTextIndexes {
+		if db := scope.NewDB().Table(scope.TableName()).Model(scope.Value).AddFullTextIndex(name, columns...); db.Error != nil {
 			scope.db.AddError(db.Error)
 		}
 	}

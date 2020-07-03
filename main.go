@@ -701,16 +701,23 @@ func (s *DB) DropColumn(column string) *DB {
 }
 
 // AddIndex add index for columns with given name
-func (s *DB) AddIndex(indexName string, columns ...string) *DB {
+func (s *DB) AddIndex(indexName, indexType string, columns ...string) *DB {
 	scope := s.Unscoped().NewScope(s.Value)
-	scope.addIndex(false, indexName, columns...)
+	scope.addIndex("", indexName, indexType, columns...)
 	return scope.db
 }
 
 // AddUniqueIndex add unique index for columns with given name
-func (s *DB) AddUniqueIndex(indexName string, columns ...string) *DB {
+func (s *DB) AddUniqueIndex(indexName, indexMethod string, columns ...string) *DB {
 	scope := s.Unscoped().NewScope(s.Value)
-	scope.addIndex(true, indexName, columns...)
+	scope.addIndex("unique", indexName, indexMethod, columns...)
+	return scope.db
+}
+
+// AddFullTextIndex add unique index for columns with given name
+func (s *DB) AddFullTextIndex(indexName string, columns ...string) *DB {
+	scope := s.Unscoped().NewScope(s.Value)
+	scope.addIndex("fulltext", indexName, "", columns...)
 	return scope.db
 }
 
