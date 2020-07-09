@@ -1335,7 +1335,7 @@ func (scope *Scope) autoIndex() *Scope {
 			names := strings.Split(name, ",")
 			indexMethod = "HASH"
 			for _, name := range names {
-				if name == "UNIQUE_INDEX" || name == "" {
+				if name == "UNIQUE_HASH_INDEX" || name == "" {
 					name = scope.Dialect().BuildKeyName("uix", scope.TableName(), field.DBName)
 				}
 				name, column := scope.Dialect().NormalizeIndexAndColumn(name, field.DBName)
@@ -1346,6 +1346,9 @@ func (scope *Scope) autoIndex() *Scope {
 		if name, ok := field.TagSettingsGet("FULLTEXT"); ok {
 			names := strings.Split(name, ",")
 			for _, name := range names {
+				if name == "FULLTEXT" || name == "" {
+					name = scope.Dialect().BuildKeyName("uix", scope.TableName(), field.DBName)
+				}
 				name, column := scope.Dialect().NormalizeIndexAndColumn(name, field.DBName)
 				fullTextIndexes[name] = append(fullTextIndexes[name], column)
 			}
